@@ -27,6 +27,7 @@
 # Download images in current directory.
 
 import requests  
+import grequests  
 from lxml import html  
 import sys  
 import re
@@ -37,6 +38,7 @@ if len(sys.argv) < 2:
 
 link = sys.argv[1]
 xpath = "//div[@class='big_img']//img/@src"
+req_count = 10
 
 response = requests.get(link)  
 parsed_body = html.fromstring(response.text)
@@ -51,26 +53,35 @@ img_root = re.match(r".*/", images[0]).group(0)
 print("Images' URL root: {}\n".format(img_root))
 
 # image downloading loop
-i = 1
-while True:
-    url = urljoin(img_root, "{}.jpg".format(i))
-    r = requests.get(url)
-    if not r.ok:
-        i -= 1
-        break
+cur = 1
+downloaded = 0
+halt = False
+urls = []
+while not halt:
+    for i in range(0, req_count):
+        urls.append(urljoin(img_root, "{}.jpg".format(cur + i)))
+    gets = (grequests.get(u) for u in urls)
+    urls = []
+    rs = grequests.imap(gets)
 
-    file_name = '{}.jpg'.format(i)
-    try:
-        f = open(file_name, mode='xb')
-    except FileExistsError:
-        sys.exit("File '{}' already exists.".format(file_name))
-    except:
-        sys.exit("Can not create file '{}'.".format(file_name))
+    for r in rs:
+        if not r.ok:
+            halt = True
+            continue
 
-    f.write(r.content)
-    f.close
+        file_name = re.search(r"[0-9]*.jpg", r.url).group(0)
+        try:
+            f = open(file_name, mode='xb')
+        except FileExistsError:
+            sys.exit("File '{}' already exists.".format(file_name))
+        except:
+            sys.exit("Can not create file '{}'.".format(file_name))
 
-    print("Downloaded: {}".format(url))
-    i += 1
+        f.write(r.content)
+        f.close
 
-print("\n{} images have downloaded.".format(i))
+        print("Downloaded: {}".format(r.url))
+        downloaded += 1
+    cur += req_count
+
+print("\n{} images have downloaded.".format(downloaded))
